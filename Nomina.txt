@@ -1,0 +1,23 @@
+Nombre = Camilo
+Apellidos = Gil
+Cargo = ESTRATÉGICO
+Género = MASCULINO
+Salario = $70000.0
+Días trabajados = 25
+Otros ingresos = $45000.0
+Pagos salud = $200000.0
+Aportes pensiones = $100000.0
+---------
+
+Nombre = Maria
+Apellidos = Rua
+Cargo = DIRECTIVO
+Género = FEMENINO
+Salario = $85000.0
+Días trabajados = 27
+Otros ingresos = $60000.0
+Pagos salud = $250000.0
+Aportes pensiones = $125000.0
+---------
+
+Total nómina = $3,475,000.00
