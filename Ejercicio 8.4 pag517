@@ -1,0 +1,312 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import os
+import re
+
+# Clase Empleado
+class Empleado:
+    def __init__(self, nombre, apellidos, cargo, genero, salario_dia, dias, otros, salud, pension):
+        self.nombre = nombre
+        self.apellidos = apellidos
+        self.cargo = cargo
+        self.genero = genero
+        self.salario_dia = salario_dia
+        self.dias = dias
+        self.otros = otros
+        self.salud = salud
+        self.pension = pension
+
+    def salario_mensual(self):
+        ingresos = (self.salario_dia * self.dias) + self.otros
+        deducciones = self.salud + self.pension
+        return ingresos - deducciones
+
+
+# Clase Nomina
+class Nomina:
+    def __init__(self):
+        self.empleados = []
+
+    def agregar(self, emp):
+        self.empleados.append(emp)
+
+    def total(self):
+        acumulado = 0.0
+        for e in self.empleados:
+            acumulado += e.salario_mensual()
+        return acumulado
+
+    def guardar(self, ruta):
+        with open(ruta, "w", encoding="utf-8") as f:
+            for e in self.empleados:
+                datos_empleado = (
+                    f"Nombre = {e.nombre}\n"
+                    f"Apellidos = {e.apellidos}\n"
+                    f"Cargo = {e.cargo.upper()}\n"
+                    f"Género = {e.genero.upper()}\n"
+                    f"Salario = ${e.salario_dia}\n"
+                    f"Días trabajados = {e.dias}\n"
+                    f"Otros ingresos = ${e.otros}\n"
+                    f"Pagos salud = ${e.salud}\n"
+                    f"Aportes pensiones = ${e.pension}\n"
+                    "---------\n\n"
+                )
+                f.write(datos_empleado)
+            #total al final
+            f.write(f"Total nómina = ${self.total():,.2f}\n")
+
+    def cargar(self, ruta): #
+        if not os.path.exists(ruta):
+            return
+
+        with open(ruta, "r", encoding="utf-8") as f:
+            contenido_completo = f.read()
+
+        bloques = contenido_completo.split("---------")
+
+        self.empleados = [] # Reinicia lista al cargar
+
+        for bloque in bloques:
+            if not bloque.strip(): continue # Salta bloques vacíos
+            
+            dic_datos = {}
+            lineas = bloque.strip().split("\n")
+            
+            for linea in lineas:
+                if "=" in linea:
+                    clave, valor = linea.split("=", 1)
+                    dic_datos[clave.strip()] = valor.strip()
+
+            # Verificamos si tenemos datos suficientes para crear un Empleado
+            if "Nombre" in dic_datos and "Salario" in dic_datos:
+                try:
+                    # Funciones auxiliares lambda para limpiar el código de creación
+                    limpiar_num = lambda x: float(str(x).replace("$", "").replace(",", ""))
+                    
+                    nuevo_emp = Empleado(
+                        dic_datos.get("Nombre", ""),
+                        dic_datos.get("Apellidos", ""),
+                        dic_datos.get("Cargo", ""),
+                        dic_datos.get("Género", ""),
+                        limpiar_num(dic_datos.get("Salario", "0")),
+                        int(dic_datos.get("Días trabajados", "0")),
+                        limpiar_num(dic_datos.get("Otros ingresos", "0")),
+                        limpiar_num(dic_datos.get("Pagos salud", "0")),
+                        limpiar_num(dic_datos.get("Aportes pensiones", "0"))
+                    )
+                    self.agregar(nuevo_emp)
+                except Exception:
+                    pass
+
+
+# Ventana Principal
+class VentanaPrincipal(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Nómina")
+        self.geometry("360x300")
+        self.resizable(False, False)
+
+        self.nomina = Nomina()
+        
+        # Gestión de rutas
+        self.carpeta = os.path.join(os.getcwd(), "DatosNomina")
+        if not os.path.exists(self.carpeta):
+            os.makedirs(self.carpeta)
+        self.ruta_fija = os.path.join(self.carpeta, "Nomina.txt")
+
+        self.nomina.cargar(self.ruta_fija)
+        self.add_window = None
+
+        self._crear_menu()
+        self._construir_interfaz_principal()
+
+    def _construir_interfaz_principal(self):
+        tk.Label(self, text="Sistema de Nómina", font=("Arial", 16)).pack(pady=12)
+        tk.Label(self, text="Use el menú para administrar empleados").pack()
+        
+        # Guardamos la referencia del label para actualizarlo luego
+        self.resumen_label = tk.Label(self, text="")
+        self.resumen_label.pack(pady=20)
+        self._actualizar_resumen_texto()
+
+    def _crear_menu(self):
+        barra = tk.Menu(self)
+        self.config(menu=barra)
+        opciones = tk.Menu(barra, tearoff=0)
+        opciones.add_command(label="Agregar empleado", command=self.abrir_agregar)
+        opciones.add_command(label="Calcular nómina", command=self.abrir_calculo)
+        opciones.add_command(label="Guardar archivo", command=self.guardar_archivo)
+        
+        barra.add_cascade(label="Menú", menu=opciones)
+
+    def _actualizar_resumen_texto(self):
+        # Método auxiliar para evitar repetir código
+        txt = f"Empleados registrados: {len(self.nomina.empleados)}\nTotal nómina: ${self.nomina.total():,.2f}"
+        self.resumen_label.config(text=txt)
+
+    # Ventana agregar
+    def abrir_agregar(self):
+        if self.add_window and tk.Toplevel.winfo_exists(self.add_window):
+            self.add_window.lift()
+            return
+
+        self.add_window = tk.Toplevel(self)
+        self.add_window.title("Agregar Empleado")
+        self.add_window.geometry("380x520")
+        self.add_window.resizable(False, False)
+
+        v = self.add_window
+
+        # Validaciones 
+        reg_txt = v.register(lambda P: bool(re.match(r'^[A-Za-zÁÉÍÓÚáéíóúÑñ ]*$', P)))
+        reg_num = v.register(lambda P: bool(re.match(r'^[0-9]*\.?[0-9]*$', P)))
+
+        entradas = {}
+        
+        # Lista de configuración de campos: (Etiqueta, Clave, Tipo de Widget, Validación)
+        config_campos = [
+            ("Nombre:", "nombre", "entry", reg_txt),
+            ("Apellidos:", "apellidos", "entry", reg_txt),
+            ("Cargo:", "cargo", "combo", None),
+            ("Género:", "genero", "radio", None),
+            ("Salario por día:", "salario", "entry", reg_num),
+            ("Días trabajados mes:", "dias", "spin", None),
+            ("Otros ingresos:", "otros", "entry", reg_num),
+            ("Pagos salud:", "salud", "entry", reg_num),
+            ("Aportes pensiones:", "pension", "entry", reg_num)
+        ]
+
+        # Bucle para generar la interfaz 
+        y_pos = 20
+        for etiqueta, clave, tipo, validacion in config_campos:
+            tk.Label(v, text=etiqueta).place(x=20, y=y_pos)
+            
+            if tipo == "entry":
+                ent = tk.Entry(v, validate="key", validatecommand=(validacion, "%P"))
+                ent.place(x=160, y=y_pos, width=180 if "Nombre" in etiqueta or "Apellidos" in etiqueta else 120)
+                entradas[clave] = ent
+            
+            elif tipo == "combo":
+                cb = ttk.Combobox(v, state="readonly", values=["Directivo", "Estratégico", "Operativo"])
+                cb.place(x=160, y=y_pos, width=180)
+                entradas[clave] = cb
+
+            elif tipo == "radio":
+                var_gen = tk.StringVar(value="Masculino")
+                tk.Radiobutton(v, text="Masculino", variable=var_gen, value="Masculino").place(x=160, y=y_pos)
+                tk.Radiobutton(v, text="Femenino", variable=var_gen, value="Femenino").place(x=260, y=y_pos)
+                entradas[clave] = var_gen
+            
+            elif tipo == "spin":
+                # Usamos una variable int para facilitar la lectura
+                var_dias = tk.IntVar(value=1)
+                sp = tk.Spinbox(v, from_=1, to=30, textvariable=var_dias, width=5)
+                sp.place(x=260, y=y_pos)
+                entradas[clave] = var_dias
+
+            y_pos += 36
+
+        # Lógica de botones
+        def accion_limpiar():
+            for clave, widget in entradas.items():
+                if isinstance(widget, tk.Entry):
+                    widget.delete(0, tk.END)
+                elif isinstance(widget, ttk.Combobox):
+                    widget.set("")
+                elif isinstance(widget, tk.StringVar): # Radio
+                    widget.set("Masculino")
+                elif isinstance(widget, tk.IntVar): # Spin
+                    widget.set(1)
+
+        def accion_agregar():
+            # Verificación rápida iterando sobre las entradas
+            valores = {}
+            try:
+                valores["nombre"] = entradas["nombre"].get().strip()
+                valores["apellidos"] = entradas["apellidos"].get().strip()
+                valores["cargo"] = entradas["cargo"].get()
+                valores["genero"] = entradas["genero"].get()
+                valores["salario"] = float(entradas["salario"].get())
+                valores["dias"] = entradas["dias"].get()
+                valores["otros"] = float(entradas["otros"].get())
+                valores["salud"] = float(entradas["salud"].get())
+                valores["pension"] = float(entradas["pension"].get())
+
+                if not valores["nombre"] or not valores["apellidos"] or not valores["cargo"]:
+                    raise ValueError("Campos vacíos")
+
+                if not (1 <= valores["dias"] <= 30):
+                    messagebox.showerror("Error", "Días entre 1 y 30")
+                    return
+
+            except Exception:
+                messagebox.showerror("Error", "Revise que todos los campos sean válidos")
+                return
+
+            # Crear objeto
+            nuevo = Empleado(
+                valores["nombre"], valores["apellidos"], valores["cargo"],
+                valores["genero"], valores["salario"], valores["dias"],
+                valores["otros"], valores["salud"], valores["pension"]
+            )
+            
+            self.nomina.agregar(nuevo)
+            self._actualizar_resumen_texto()
+            messagebox.showinfo("OK", "Empleado agregado")
+            accion_limpiar()
+
+        tk.Button(v, text="Agregar", width=12, command=accion_agregar).place(x=85, y=420)
+        tk.Button(v, text="Borrar", width=12, command=accion_limpiar).place(x=200, y=420)
+
+    # Ventana cálculo
+    def abrir_calculo(self):
+        v = tk.Toplevel(self)
+        v.title("Cálculo de nómina")
+        v.geometry("520x420")
+        v.resizable(False, False)
+
+        cols = ("Nombre", "Apellidos", "Cargo", "Género", "Sueldo")
+        tabla = ttk.Treeview(v, columns=cols, show="headings", height=12)
+        tabla.place(x=10, y=10, width=500, height=330)
+
+        for c in cols:
+            tabla.heading(c, text=c)
+            tabla.column(c, width=120 if c == "Sueldo" else 100, anchor="center")
+
+        # Función local para llenar datos
+        def llenar_tabla():
+            # Limpiar primero
+            for item in tabla.get_children():
+                tabla.delete(item)
+            # Llenar
+            for emp in self.nomina.empleados:
+                tabla.insert("", tk.END, values=(
+                    emp.nombre, emp.apellidos, emp.cargo, emp.genero,
+                    f"${emp.salario_mensual():,.2f}"
+                ))
+            
+            lbl_total.config(text=f"Total nómina: ${self.nomina.total():,.2f}")
+
+        lbl_total = tk.Label(v, text="", font=("Arial", 13, "bold"))
+        lbl_total.place(x=10, y=350)
+        
+        # Carga inicial
+        llenar_tabla()
+
+        def recargar():
+            self.nomina.cargar(self.ruta_fija)
+            llenar_tabla()
+            self._actualizar_resumen_texto()
+
+        tk.Button(v, text="Recargar desde archivo", command=recargar).place(x=350, y=350)
+
+    def guardar_archivo(self):
+        self.nomina.guardar(self.ruta_fija)
+        messagebox.showinfo("OK", f"Archivo guardado en:\n{self.ruta_fija}")
+        self._actualizar_resumen_texto()
+
+
+if __name__ == "__main__":
+    app = VentanaPrincipal()
+    app.mainloop()
