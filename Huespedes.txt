@@ -1,0 +1,8 @@
+Nombre Huesped: Esteban Morales
+Habitacion: 8
+Dia ingreso: 2025-12-09
+Dia de Salida: 2025-12-15
+Cantidad de dias: 6
+Costo: 300000
+-----------------
+Total costo huespedes: 300000
