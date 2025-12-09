@@ -1,0 +1,380 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+from datetime import datetime
+from pathlib import Path
+import re
+
+try:
+    from tkcalendar import Calendar
+    TKCALENDAR_AVAILABLE = True
+except ImportError:
+    TKCALENDAR_AVAILABLE = False
+
+
+# CLASE PRINCIPAL
+class HotelApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title('Hotel')
+        self.geometry('400x300')
+        
+        # Configuración y Constantes
+        self.NUM_HABITACIONES = 10
+        self.PRECIO_POR_DIA = 50000
+        self.RUTA_ARCHIVO = Path('DatosHuespedes') / 'Huespedes.txt'
+        
+        # Estado del sistema 
+        self.habitaciones = [None] * self.NUM_HABITACIONES
+        
+        # Control de ventanas 
+        self.ventanas_abiertas = {
+            'consult': None,
+            'salida': None
+        }
+        
+        # Referencias visuales
+        self.labels_estado = [] 
+
+        self._inicializar_archivo()
+        self._crear_menu()
+        self._crear_pantalla_inicio()
+
+    # GESTIÓN DE ARCHIVOS Y DATOS
+    def _inicializar_archivo(self):
+        self.RUTA_ARCHIVO.parent.mkdir(parents=True, exist_ok=True)
+        if not self.RUTA_ARCHIVO.exists():
+            self.RUTA_ARCHIVO.write_text('', encoding='utf-8')
+
+    def _leer_archivo_sin_total(self) -> str:
+        if not self.RUTA_ARCHIVO.exists():
+            return ''
+        texto = self.RUTA_ARCHIVO.read_text(encoding='utf-8')
+        # Buscamos dónde empieza el total para ignorarlo
+        idx = texto.find('Total costo huespedes:')
+        return texto[:idx] if idx != -1 else texto
+
+    def _calcular_nuevo_total(self, texto: str) -> int:
+        matches = re.findall(r'Costo:\s*\$?\s*([0-9]+)', texto)
+        return sum(int(m) for m in matches) if matches else 0
+
+    def guardar_registro_historial(self, datos_reserva):
+        """Escribe en el archivo conservando el formato exacto."""
+        contenido_actual = self._leer_archivo_sin_total()
+        
+        # Construcción del bloque de texto 
+        nuevo_bloque = (
+            f"Nombre Huesped: {datos_reserva['nombre']}\n"
+            f"Habitacion: {datos_reserva['habitacion_idx'] + 1}\n" # +1 para visualización humana
+            f"Dia ingreso: {datos_reserva['ingreso']}\n"
+            f"Dia de Salida: {datos_reserva['salida']}\n"
+            f"Cantidad de dias: {datos_reserva['dias']}\n"
+            f"Costo: {datos_reserva['costo']}\n"
+            "-----------------\n"
+        )
+
+        if nuevo_bloque in contenido_actual:
+            return False
+
+        texto_final = contenido_actual + nuevo_bloque
+        total_acumulado = self._calcular_nuevo_total(texto_final)
+        texto_final += f"Total costo huespedes: {total_acumulado}\n"
+        
+        self.RUTA_ARCHIVO.write_text(texto_final, encoding='utf-8')
+        return True
+
+    # VALIDACIONES 
+    @staticmethod
+    def validar_fecha_logica(fecha_str: str) -> bool:
+        try:
+            f = datetime.strptime(fecha_str, '%Y-%m-%d')
+            hoy = datetime.now()
+            # Regla no futura, no más antigua de 2 años
+            if f > hoy or (hoy - f).days > 365 * 2:
+                return False
+            return True
+        except ValueError:
+            return False
+
+    # INTERFAZ GRÁFICA
+    def _crear_pantalla_inicio(self):
+        tk.Label(self, text='Bienvenido al sistema de gestión hotelera', 
+                 font=('Arial', 14), pady=20).pack()
+
+    def _crear_menu(self):
+        barra_menu = tk.Menu(self)
+        self.config(menu=barra_menu)
+        
+        menu_ops = tk.Menu(barra_menu, tearoff=0)
+        barra_menu.add_cascade(label='Menú', menu=menu_ops)
+        
+        menu_ops.add_command(label='Consultar habitaciones', command=self.ventana_consultar)
+        menu_ops.add_command(label='Salida de huéspedes', command=self.ventana_salida)
+
+    # Ventana Consultar 
+    def ventana_consultar(self):
+        if self._enfocar_ventana_si_existe('consult'): return
+
+        v = tk.Toplevel(self)
+        v.title('Habitaciones')
+        v.geometry('700x300')
+        self.ventanas_abiertas['consult'] = v
+
+        tk.Label(v, text='Estado de Habitaciones', font=('Arial', 12, 'bold')).pack(pady=5)
+
+        # Generación de la cuadrícula de habitaciones usando bucles
+        frame_grid = tk.Frame(v)
+        frame_grid.pack()
+        
+        self.labels_estado = [] # Reiniciar lista de referencias
+        for i in range(self.NUM_HABITACIONES):
+            txt_estado = 'Disponible' if self.habitaciones[i] is None else 'No disponible'
+            lbl = tk.Label(frame_grid, text=f'Habitación {i+1}\n{txt_estado}',
+                           relief='groove', width=15, height=3)
+            # Cálculo matemático de posición 
+            lbl.grid(row=i//5, column=i%5, padx=5, pady=5)
+            self.labels_estado.append(lbl)
+
+        # Sección de selección
+        frame_sel = tk.Frame(v)
+        frame_sel.pack(pady=15)
+        
+        tk.Label(frame_sel, text='Habitación a reservar:').pack(side='left')
+        
+        reg_digit = v.register(lambda S: S.isdigit())
+        entrada_num = tk.Entry(frame_sel, width=5, validate='key', validatecommand=(reg_digit, '%S'))
+        entrada_num.pack(side='left', padx=5)
+
+        def accion_ir_registro():
+            val = entrada_num.get().strip()
+            if not val:
+                messagebox.showerror('Error', 'Ingrese número')
+                return
+            
+            idx = int(val) - 1
+            if not (0 <= idx < self.NUM_HABITACIONES):
+                messagebox.showerror('Error', 'Habitación no existe')
+                return
+            
+            if self.habitaciones[idx] is not None:
+                messagebox.showwarning('Ocupada', 'La habitación ya está ocupada.')
+                return
+            
+            entrada_num.delete(0, tk.END)
+            self.ventana_registro(idx)
+
+        tk.Button(frame_sel, text='Reservar', command=accion_ir_registro).pack(side='left')
+        v.protocol('WM_DELETE_WINDOW', lambda: self._cerrar_ventana_hija('consult', v))
+
+    #Ventana Registro
+    def ventana_registro(self, idx_hab):
+        key_win = f'registro_{idx_hab}'
+        if self._enfocar_ventana_si_existe(key_win): return
+
+        v = tk.Toplevel(self)
+        v.title(f'Registro Habitación {idx_hab + 1}')
+        self.ventanas_abiertas[key_win] = v
+
+        tk.Label(v, text=f'Registro de Huésped - Habitación {idx_hab+1}', font=('Arial', 11, 'bold')).pack(pady=10)
+        
+        frame_form = tk.Frame(v, padx=10, pady=10)
+        frame_form.pack()
+
+        # Validadores
+        v_texto = (v.register(lambda s: s.replace(" ", "").isalpha() or s == ""), '%S')
+        v_num = (v.register(lambda s: s.isdigit() or s == ""), '%S')
+        v_fecha = (v.register(lambda s: re.match(r'^[0-9-]*$', s) is not None), '%S')
+
+        # Estructura de datos para generar el formulario iterativamente
+        controles = {}
+        campos_config = [
+            ("Fecha (aaaa-mm-dd):", "fecha", v_fecha, True), # True indica que lleva botón calendario
+            ("Nombre:", "nombre", v_texto, False),
+            ("Apellidos:", "apellidos", v_texto, False),
+            ("Doc. Identidad:", "doc", v_num, False),
+        ]
+
+        # Bucle de creación de widgets
+        for i, (etiqueta, clave, validacion, usa_calendario) in enumerate(campos_config):
+            tk.Label(frame_form, text=etiqueta).grid(row=i, column=0, sticky='w', pady=2)
+            
+            ent = tk.Entry(frame_form, validate='key', validatecommand=validacion)
+            ent.grid(row=i, column=1, sticky='ew', padx=5)
+            
+            if clave == "fecha":
+                ent.insert(0, datetime.now().strftime('%Y-%m-%d'))
+            
+            controles[clave] = ent
+
+            if usa_calendario:
+                btn = tk.Button(frame_form, text='📅', 
+                                command=lambda e=ent: self._abrir_selector_fecha(v, e))
+                btn.grid(row=i, column=2)
+
+        def accion_confirmar():
+            datos = {k: ctrl.get().strip() for k, ctrl in controles.items()}
+            
+            # 1. Validaciones
+            if not all(datos.values()):
+                messagebox.showerror('Error', 'Todos los campos son obligatorios')
+                return
+            
+            if not self.validar_fecha_logica(datos['fecha']):
+                messagebox.showerror('Error', 'Fecha inválida (formato, futura o muy antigua)')
+                return
+
+            # 2. Guardar en memoria
+            self.habitaciones[idx_hab] = {
+                'fecha_ingreso': datos['fecha'],
+                'nombre': f"{datos['nombre']} {datos['apellidos']}",
+                'doc': datos['doc']
+            }
+
+            # 3. Actualizar UI externa y cerrar
+            if self.labels_estado:
+                self.labels_estado[idx_hab].config(text=f'Habitación {idx_hab+1}\nNo disponible')
+            
+            messagebox.showinfo('Éxito', 'Huésped registrado correctamente')
+            self._cerrar_ventana_hija(key_win, v)
+
+        tk.Button(v, text='Registrar', command=accion_confirmar, width=15).pack(pady=10)
+        v.protocol('WM_DELETE_WINDOW', lambda: self._cerrar_ventana_hija(key_win, v))
+
+    #Ventana Salida
+    def ventana_salida(self):
+        if self._enfocar_ventana_si_existe('salida'): return
+
+        num = simpledialog.askinteger('Check-out', 'Número de habitación a liberar:', minvalue=1, maxvalue=self.NUM_HABITACIONES)
+        if not num: return
+
+        idx_hab = num - 1
+        datos_huesped = self.habitaciones[idx_hab]
+        
+        if datos_huesped is None:
+            messagebox.showwarning('Aviso', 'Esa habitación ya está vacía.')
+            return
+
+        v = tk.Toplevel(self)
+        v.title(f'Salida Habitación {num}')
+        self.ventanas_abiertas['salida'] = v
+
+        frame_data = tk.Frame(v, padx=20, pady=10)
+        frame_data.pack()
+
+        # Mostrar datos estáticos
+        tk.Label(frame_data, text=f"Huésped: {datos_huesped['nombre']}").grid(row=0, column=0, columnspan=2, sticky='w')
+        tk.Label(frame_data, text=f"Ingreso: {datos_huesped['fecha_ingreso']}").grid(row=1, column=0, columnspan=2, sticky='w')
+
+        # Campo fecha salida
+        tk.Label(frame_data, text="Salida (aaaa-mm-dd):").grid(row=2, column=0, sticky='w', pady=(10,0))
+        ent_salida = tk.Entry(frame_data)
+        ent_salida.insert(0, datetime.now().strftime('%Y-%m-%d'))
+        ent_salida.grid(row=2, column=1, pady=(10,0))
+        
+        tk.Button(frame_data, text='📅', 
+                  command=lambda: self._abrir_selector_fecha(v, ent_salida)).grid(row=2, column=2, pady=(10,0))
+
+        # Labels informativos
+        lbl_dias = tk.Label(frame_data, text="Días: -")
+        lbl_dias.grid(row=3, column=0, columnspan=2, sticky='w')
+        lbl_total = tk.Label(frame_data, text="Total a pagar: -", font=('Arial', 10, 'bold'))
+        lbl_total.grid(row=4, column=0, columnspan=2, sticky='w')
+
+        # Variable para almacenar cálculo válido
+        calculo_cache = {'dias': 0, 'costo': 0, 'valido': False}
+
+        def accion_calcular():
+            try:
+                f_in = datetime.strptime(datos_huesped['fecha_ingreso'], '%Y-%m-%d')
+                f_out = datetime.strptime(ent_salida.get(), '%Y-%m-%d')
+                dias = (f_out - f_in).days
+                
+                if dias <= 0: raise ValueError("Fecha salida debe ser posterior al ingreso")
+                if dias > 365: raise ValueError("Estadía excede el año")
+
+                costo = dias * self.PRECIO_POR_DIA
+                
+                lbl_dias.config(text=f"Días: {dias}")
+                lbl_total.config(text=f"Total a pagar: ${costo:,.0f}")
+                
+                calculo_cache.update({'dias': dias, 'costo': costo, 'valido': True})
+            except Exception as e:
+                calculo_cache['valido'] = False
+                messagebox.showerror("Error cálculo", str(e))
+
+        def accion_finalizar():
+            if not calculo_cache['valido']:
+                messagebox.showerror("Error", "Primero debe calcular el costo correctamente")
+                return
+            
+            # Guardar
+            exito = self.guardar_registro_historial({
+                'nombre': datos_huesped['nombre'],
+                'habitacion_idx': idx_hab,
+                'ingreso': datos_huesped['fecha_ingreso'],
+                'salida': ent_salida.get(),
+                'dias': calculo_cache['dias'],
+                'costo': calculo_cache['costo']
+            })
+
+            if exito:
+                messagebox.showinfo("Check-out", "Salida registrada y guardada.")
+            else:
+                messagebox.showwarning("Aviso", "Registro duplicado en archivo (no se guardó nuevamente).")
+
+            # Limpiar memoria y UI
+            self.habitaciones[idx_hab] = None
+            if self.labels_estado:
+                self.labels_estado[idx_hab].config(text=f'Habitación {num}\nDisponible')
+            
+            self._cerrar_ventana_hija('salida', v)
+
+        tk.Button(v, text="Calcular Costo", command=accion_calcular).pack(pady=5)
+        tk.Button(v, text="Finalizar Salida", command=accion_finalizar, bg="#dddddd").pack(pady=5)
+        
+        v.protocol('WM_DELETE_WINDOW', lambda: self._cerrar_ventana_hija('salida', v))
+
+    # UTILIDADES DE VENTANA
+    def _enfocar_ventana_si_existe(self, key):
+        """Evita abrir ventanas duplicadas."""
+        win = self.ventanas_abiertas.get(key)
+        if win and tk.Toplevel.winfo_exists(win):
+            win.lift()
+            win.focus()
+            return True
+        return False
+
+    def _cerrar_ventana_hija(self, key, ventana_obj):
+        self.ventanas_abiertas[key] = None
+        ventana_obj.destroy()
+
+    def _abrir_selector_fecha(self, parent, entry_widget):
+        if not TKCALENDAR_AVAILABLE:
+            messagebox.showinfo('Info', 'tkcalendar no instalado. Ingrese manual.')
+            return
+        
+        top = tk.Toplevel(parent)
+        cal = Calendar(top, selectmode='day')
+        cal.pack()
+
+        def set_date():
+            # Manejo básico de formatos que devuelve tkcalendar
+            d_str = cal.get_date() 
+            try:
+                # Intentar formato m/d/y 
+                dt = datetime.strptime(d_str, '%m/%d/%y')
+            except ValueError:
+                try:
+                    dt = datetime.strptime(d_str, '%m/%d/%Y')
+                except ValueError:
+                    messagebox.showerror('Error', 'Formato fecha desconocido')
+                    return
+            
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, dt.strftime('%Y-%m-%d'))
+            top.destroy()
+
+        tk.Button(top, text="Seleccionar", command=set_date).pack()
+
+if __name__ == "__main__":
+    app = HotelApp()
+    app.mainloop()
