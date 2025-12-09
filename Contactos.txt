@@ -1,0 +1,7 @@
+Nombre: Diana
+Apellido: Giraldo
+Fecha de nacimiento: 28/08/2000
+Dirección: Cra 34 # 56 - 134
+Teléfono: 300468761
+Correo: Diagil@gmail.com
+-------------------------
